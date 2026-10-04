@@ -9,6 +9,9 @@ class MyHTTPServer(BaseHTTPRequestHandler):
     self.wfile.write("Hello, this is from MyHTTPServer".encode())
 
 if __name__ == '__main__':
-  server_address = ('', 8000) # Serve on all addresses, port 8000
-  httpd = HTTPServer(server_address, MyHTTPServer)
-  httpd.serve_forever()
+  try:
+    server_address = ('', 8000) # Serve on all addresses, port 8000
+    httpd = HTTPServer(server_address, MyHTTPServer)
+    httpd.serve_forever()
+  except KeyboardInterrupt:
+    print("Keyboard interruption. The program is stopped by user!")
