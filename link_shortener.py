@@ -6,7 +6,7 @@ import requests
 
 # from html import escape
 
-form = """<!DOCTYPE html>
+FORM = """<!DOCTYPE html>
   <title>Message Board</title>
   <form method="POST">
     <label>Long URI:
@@ -28,7 +28,9 @@ form = """<!DOCTYPE html>
 memory = {}
 
 
-def CheckURI(uri, timeout=5):
+def check_uri(uri, timeout=5):
+    """
+    Check whether this URI is reachable, i.e. does it return a 200 OK?"""
     try:
         r = requests.get(uri, timeout=timeout)
         # If the GET request returns, was it a 200 OK?
@@ -39,9 +41,13 @@ def CheckURI(uri, timeout=5):
 
 
 class LinkShortener(BaseHTTPRequestHandler):
+    """Handle HTTP requests for creating and resolving short links."""
+
     def do_GET(self):
         # A GET request will either be for / (the root path) or for /some-name.
         # Strip off the / and we have either empty string or a name.
+        
+        
         shortname = unquote(self.path[1:])
 
         if shortname:
@@ -67,7 +73,7 @@ class LinkShortener(BaseHTTPRequestHandler):
             #     "{} : {}".format(key, memory[key]) for key in memory.keys()
             # )
             known = "\n".join(f"{key} : {memory[key]}" for key in memory)
-            self.wfile.write(form.format(known).encode())
+            self.wfile.write(FORM.format(known).encode())
 
     def do_POST(self):
         # How long was the message? (Use the Content-Length header.)
@@ -91,7 +97,7 @@ class LinkShortener(BaseHTTPRequestHandler):
         longuri = params["longuri"][0]
         shortname = params["shortname"][0]
 
-        if CheckURI(longuri):
+        if check_uri(longuri):
             # This URI is good!  Remember it under the specified name.
             memory[shortname] = longuri
 
