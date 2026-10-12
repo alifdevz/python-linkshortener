@@ -1,6 +1,6 @@
 """Server HTTP sederhana untuk menyimpan dan mengalihkan nama pendek ke URI panjang."""
 
-from http.server import HTTPServer, BaseHTTPRequestHandler
+from http.server import ThreadingHTTPServer, BaseHTTPRequestHandler
 from urllib.parse import parse_qs, unquote
 import os
 import requests
@@ -42,7 +42,10 @@ def check_uri(uri, timeout=5):
 
 
 class LinkShortener(BaseHTTPRequestHandler):
-    """Handle HTTP requests for creating and resolving short links."""
+    """Handle HTTP requests for creating and resolving short links.
+
+    This is an HTTPServer that supports thread-based concurrency.
+    """
 
     def do_GET(self):
         # A GET request will either be for / (the root path) or for /some-name.
@@ -118,7 +121,7 @@ if __name__ == "__main__":
         # Use environment PORT if it is available. If not, use 8000
         port = int(os.environ.get('PORT', 8000))
         server_address = ("", port)  # Serve on all addresses
-        httpd = HTTPServer(server_address, LinkShortener)
+        httpd = ThreadingHTTPServer(server_address, LinkShortener)
         httpd.serve_forever()
     except KeyboardInterrupt:
         print("Keyboard interruption. The program is stopped by user!")
