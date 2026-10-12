@@ -115,7 +115,7 @@ class LinkShortener(BaseHTTPRequestHandler):
 
 if __name__ == "__main__":
     try:
-        # Use environment PORT if it's there. If not, use 8000
+        # Use environment PORT if it is available. If not, use 8000
         port = int(os.environ.get('PORT', 8000))
         server_address = ("", port)  # Serve on all addresses
         httpd = HTTPServer(server_address, LinkShortener)
