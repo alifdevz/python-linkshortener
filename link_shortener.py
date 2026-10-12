@@ -2,6 +2,7 @@
 
 from http.server import HTTPServer, BaseHTTPRequestHandler
 from urllib.parse import parse_qs, unquote
+import os
 import requests
 
 # from html import escape
@@ -114,7 +115,9 @@ class LinkShortener(BaseHTTPRequestHandler):
 
 if __name__ == "__main__":
     try:
-        server_address = ("", 8000)  # Serve on all addresses, port 8000
+        # Use environment PORT if it's there. If not, use 8000
+        port = int(os.environ.get('PORT', 8000))
+        server_address = ("", port)  # Serve on all addresses
         httpd = HTTPServer(server_address, LinkShortener)
         httpd.serve_forever()
     except KeyboardInterrupt:
