@@ -121,7 +121,7 @@ if __name__ == "__main__":
         # Use environment PORT if it is available. If not, use 8000
         port = int(os.environ.get('PORT', 8000))
         server_address = ("", port)  # Serve on all addresses
-        httpd = ThreadingHTTPServer(server_address, LinkShortener) # Use multi-threads
+        httpd = ThreadingHTTPServer(server_address, LinkShortener) # Use multi-threaded system
         httpd.serve_forever()
     except KeyboardInterrupt:
         print("Keyboard interruption. The program is stopped by user!")
