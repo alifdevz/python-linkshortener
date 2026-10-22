@@ -168,6 +168,7 @@ SCRIPT = """
 
     document.addEventListener("DOMContentLoaded", () => {
       const btn = document.getElementById("theme-toggle");
+      const generateShortBtn = document.getElementById("generate-short");
 
       const render = () => {
         btn.textContent = LABELS[mode];
@@ -206,7 +207,7 @@ FORM = """<!DOCTYPE html>
       <label>URL panjang
         <input type="url" name="longuri" placeholder="https://contoh.com/halaman/panjang" required>
       </label>
-      <button type="button" name="generate">Generate nama pendek</button>
+      <button type="button" name="generate" id="generate-short">Generate nama pendek</button>
       <input type="text" name="shortname" placeholder="contoh" required disabled>
       <button type="submit">Simpan</button>
     </form>
