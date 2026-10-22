@@ -206,9 +206,8 @@ FORM = """<!DOCTYPE html>
       <label>URL panjang
         <input type="url" name="longuri" placeholder="https://contoh.com/halaman/panjang" required>
       </label>
-      <label>Nama pendek
-        <input type="text" name="shortname" placeholder="contoh" required>
-      </label>
+      <button type="button" name="generate">Generate nama pendek</button>
+      <input type="text" name="shortname" placeholder="contoh" required disabled>
       <button type="submit">Simpan</button>
     </form>
 
