@@ -136,48 +136,48 @@ STYLE = """
 """
 
 SCRIPT = """
-  (function () {
-    var KEY = "theme";
-    var MODES = ["system", "dark", "light"];
-    var LABELS = {
+  (() => {
+    const KEY = "theme";
+    const MODES = ["system", "dark", "light"];
+    const LABELS = {
       system: "🖥️ Sistem",
       dark: "🌙 Gelap",
       light: "☀️ Terang"
     };
-    var root = document.documentElement;
+    const root = document.documentElement;
 
-    function getMode() {
+    const getMode = () => {
       try {
-        var saved = localStorage.getItem(KEY);
-        if (MODES.indexOf(saved) !== -1) return saved;
-      } catch (e) {}
+        const saved = localStorage.getItem(KEY);
+        if (MODES.includes(saved)) return saved;
+      } catch {}
       return "system";
-    }
+    };
 
-    function applyMode(mode) {
+    const applyMode = (mode) => {
       if (mode === "system") {
         root.removeAttribute("data-theme");
       } else {
         root.setAttribute("data-theme", mode);
       }
-    }
+    };
 
     // Terapkan sedini mungkin supaya halaman tidak berkedip saat dimuat.
-    var mode = getMode();
+    let mode = getMode();
     applyMode(mode);
 
-    document.addEventListener("DOMContentLoaded", function () {
-      var btn = document.getElementById("theme-toggle");
+    document.addEventListener("DOMContentLoaded", () => {
+      const btn = document.getElementById("theme-toggle");
 
-      function render() {
+      const render = () => {
         btn.textContent = LABELS[mode];
-        btn.title = "Tema: " + LABELS[mode] + " (klik untuk mengganti)";
-      }
+        btn.title = `Tema: ${LABELS[mode]} (klik untuk mengganti)`;
+      };
 
-      btn.addEventListener("click", function () {
+      btn.addEventListener("click", () => {
         mode = MODES[(MODES.indexOf(mode) + 1) % MODES.length];
         applyMode(mode);
-        try { localStorage.setItem(KEY, mode); } catch (e) {}
+        try { localStorage.setItem(KEY, mode); } catch {}
         render();
       });
 
@@ -192,7 +192,6 @@ FORM = """<!DOCTYPE html>
   <meta charset="utf-8">
   <meta name="viewport" content="width=device-width, initial-scale=1">
   <title>Link Shortener</title>
-  <link rel="icon" href="data:image/svg+xml,<svg xmlns=%27http://www.w3.org/2000/svg%27 viewBox=%270 0 100 100%27><text y=%27.9em%27 font-size=%2790%27>🔗</text></svg>">
   <style>{style}</style>
   <script>{script}</script>
 </head>
