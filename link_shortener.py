@@ -76,7 +76,7 @@ class LinkShortener(BaseHTTPRequestHandler):
             # known = "\n".join(
             #     "{} : {}".format(key, memory[key]) for key in memory.keys()
             # )
-            known = "\n".join(f"{key} : {memory[key]}" for key in memory)
+            known = "\n".join(f"{key} : {value}" for key, value in memory.items())
             self.wfile.write(FORM.format(known).encode())
 
     def do_POST(self):
