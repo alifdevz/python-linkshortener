@@ -110,6 +110,68 @@ STYLE = """
     transition: background 0.2s;
   }
   button[type="submit"]:hover { background: var(--primary-dark); }
+  .btn-secondary {
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    gap: 0.5rem;
+    width: 100%;
+    margin-bottom: 0.75rem;
+    padding: 0.7rem;
+    border: 1.5px solid var(--primary);
+    border-radius: 8px;
+    background: transparent;
+    color: var(--primary);
+    font-size: 1rem;
+    font-weight: 600;
+    cursor: pointer;
+    transition: background 0.2s, transform 0.1s, box-shadow 0.2s;
+  }
+  .btn-secondary:hover { background: var(--ring); }
+  .btn-secondary:active { transform: translateY(1px); }
+  .btn-secondary:focus-visible {
+    outline: none;
+    box-shadow: 0 0 0 3px var(--ring);
+  }
+  .btn-secondary:disabled {
+    opacity: 0.5;
+    cursor: not-allowed;
+    transform: none;
+  }
+  .input-group { position: relative; margin-bottom: 1rem; }
+  .input-group input { margin: 0; padding-right: 2.75rem; }
+  .icon-btn {
+    position: absolute;
+    top: 50%;
+    right: 0.4rem;
+    transform: translateY(-50%);
+    display: grid;
+    place-items: center;
+    width: 2rem;
+    height: 2rem;
+    padding: 0;
+    border: 0;
+    border-radius: 6px;
+    background: transparent;
+    color: var(--muted);
+    cursor: pointer;
+    transition: background 0.2s, color 0.2s;
+  }
+  .icon-btn:hover { background: var(--ring); color: var(--primary); }
+  .icon-btn:focus-visible {
+    outline: none;
+    box-shadow: 0 0 0 3px var(--ring);
+  }
+  .icon-btn svg { width: 1.1rem; height: 1.1rem; }
+  .icon-btn .icon-check { display: none; }
+  .icon-btn.copied { color: #16a34a; }
+  .icon-btn.copied .icon-copy { display: none; }
+  .icon-btn.copied .icon-check { display: block; }
+  input[readonly] {
+    border-style: dashed;
+    background: transparent;
+    cursor: text;
+  }
   #theme-toggle {
     flex-shrink: 0;
     padding: 0.45rem 0.8rem;
@@ -183,6 +245,39 @@ SCRIPT = """
       });
 
       render();
+
+      // --- Tombol salin nama pendek ---
+      const shortInput = document.getElementById("shortname");
+      const copyBtn = document.getElementById("copy-short");
+      const COPY_TITLE = "Salin nama pendek";
+      let copyTimer;
+
+      const copyText = async (text) => {
+        try {
+          await navigator.clipboard.writeText(text);
+          return true;
+        } catch {
+          // Cadangan untuk konteks tidak aman (misalnya http:// lewat IP LAN).
+          shortInput.select();
+          try { return document.execCommand("copy"); } catch { return false; }
+        }
+      };
+
+      copyBtn.addEventListener("click", async () => {
+        if (!shortInput.value) {
+          shortInput.focus();
+          return;
+        }
+        const ok = await copyText(shortInput.value);
+        copyBtn.classList.toggle("copied", ok);
+        copyBtn.title = ok ? "Tersalin!" : "Gagal menyalin";
+
+        clearTimeout(copyTimer);
+        copyTimer = setTimeout(() => {
+          copyBtn.classList.remove("copied");
+          copyBtn.title = COPY_TITLE;
+        }, 1500);
+      });
     });
   })();
 """
@@ -207,8 +302,21 @@ FORM = """<!DOCTYPE html>
       <label>URL panjang
         <input type="url" name="longuri" placeholder="https://contoh.com/halaman/panjang" required>
       </label>
-      <button type="button" name="generate" id="generate-short">Generate nama pendek</button>
-      <input type="text" name="shortname" placeholder="contoh" required disabled>
+      <button type="button" name="generate" id="generate-short" class="btn-secondary">
+        <span aria-hidden="true">🎲</span> Generate nama pendek
+      </button>
+      <div class="input-group">
+        <input type="text" name="shortname" id="shortname" placeholder="contoh" readonly>
+        <button type="button" id="copy-short" class="icon-btn" title="Salin nama pendek" aria-label="Salin nama pendek">
+          <svg class="icon-copy" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true">
+            <rect x="9" y="9" width="13" height="13" rx="2"></rect>
+            <path d="M5 15H4a2 2 0 0 1-2-2V4a2 2 0 0 1 2-2h9a2 2 0 0 1 2 2v1"></path>
+          </svg>
+          <svg class="icon-check" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true">
+            <polyline points="20 6 9 17 4 12"></polyline>
+          </svg>
+        </button>
+      </div>
       <button type="submit">Simpan</button>
     </form>
 
@@ -285,7 +393,11 @@ class LinkShortener(BaseHTTPRequestHandler):
         body = self.rfile.read(length).decode()
         params = parse_qs(body)
 
-        if "longuri" not in params or "shortname" not in params:
+        if (
+            "longuri" not in params
+            or "shortname" not in params
+            or not params["shortname"][0].strip()
+        ):
             # Extract the "longuri" and "shortname" fields from the request data.
             self.send_response(400)
             self.send_header("Content-type", "text/plain; charset=utf-8")
