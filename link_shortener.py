@@ -330,10 +330,10 @@ FORM = """<!DOCTYPE html>
 </html>
 """
 
-memory = {}
+memory: dict[str, str] = {}
 
 
-def check_uri(uri, timeout=5):
+def check_uri(uri: str, timeout:int=5):
     """
     Check whether this URI is reachable, i.e. does it return a 200 OK?"""
     try:
