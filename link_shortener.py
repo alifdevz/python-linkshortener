@@ -467,12 +467,12 @@ def init_database():
         conn.close()
 
 
-def encode_base62(num):
+def encode_base62(num: int) -> str:
     """Mengubah angka ID database menjadi string pendek Base62."""
     if num == 0:
         return BASE62[0]
 
-    arr = []
+    arr: list[str] = []
     base = len(BASE62)
     while num:
         num, rem = divmod(num, base)
@@ -481,7 +481,7 @@ def encode_base62(num):
     return "".join(arr)
 
 
-def decode_base62(short_str):
+def decode_base62(short_str: str):
     """Mengubah string Base62 kembali menjadi angka ID database.
 
     Melempar ValueError jika ada karakter di luar Base62.
@@ -496,7 +496,7 @@ def decode_base62(short_str):
     return num
 
 
-def id_to_code(db_id):
+def id_to_code(db_id: int):
     """ID database -> kode pendek yang tampak acak (selalu CODE_LENGTH karakter)."""
     if not 0 <= db_id < SPACE:
         raise ValueError("ID di luar jangkauan kode pendek.")
@@ -504,7 +504,7 @@ def id_to_code(db_id):
     return encode_base62(scrambled).rjust(CODE_LENGTH, BASE62[0])
 
 
-def code_to_id(code):
+def code_to_id(code: str):
     """Kebalikan dari id_to_code. Melempar ValueError jika kode tidak valid."""
     if len(code) != CODE_LENGTH:
         raise ValueError("Panjang kode tidak sesuai.")
@@ -512,7 +512,7 @@ def code_to_id(code):
     return ((scrambled - OFFSET) * MULTIPLIER_INVERSE) % SPACE
 
 
-def shorten_url(long_url):
+def shorten_url(long_url: str) -> tuple[str, bool]:
     """Simpan URL ke database lalu kembalikan (kode_pendek, baru_dibuat).
 
     Jika URL sudah ada (melanggar UNIQUE), ID lama dipakai kembali.
@@ -524,10 +524,15 @@ def shorten_url(long_url):
             cursor.execute("INSERT INTO urls (long_url) VALUES (?)", (long_url,))
             conn.commit()
             assigned_id = cursor.lastrowid
+            if assigned_id is None:
+                raise sqlite3.DatabaseError("Gagal memperoleh ID URL baru")
             created = True
-        except sqlite3.IntegrityError:
+        except sqlite3.IntegrityError as exc:
             cursor.execute("SELECT id FROM urls WHERE long_url = ?", (long_url,))
-            assigned_id = cursor.fetchone()[0]
+            row = cursor.fetchone()
+            if row is None:
+                raise sqlite3.DatabaseError("URL tidak ditemukan setelah pelanggaran UNIQUE") from exc
+            assigned_id = row[0]
             created = False
     finally:
         conn.close()
@@ -535,7 +540,7 @@ def shorten_url(long_url):
     return id_to_code(assigned_id), created
 
 
-def get_original_url(short_code):
+def get_original_url(short_code: str):
     """Decode kode pendek dan cari URL aslinya. Kembalikan None jika tidak ada."""
     try:
         db_id = code_to_id(short_code)
@@ -578,7 +583,7 @@ def render_links():
     return f'<ul id="link-items">{items}</ul>'
 
 
-def validate_long_url(url):
+def validate_long_url(url: str):
     """Kembalikan pesan error jika URL tidak valid, atau None jika valid."""
     if not url:
         return "URL tidak boleh kosong."
@@ -595,7 +600,7 @@ def validate_long_url(url):
     return None
 
 
-def check_uri(uri, timeout=5):
+def check_uri(uri: str, timeout: float = 5):
     """
     Check whether this URI is reachable, i.e. does it return a 200 OK?"""
     try:
@@ -613,7 +618,8 @@ class LinkShortener(BaseHTTPRequestHandler):
     This is an HTTPServer that supports thread-based concurrency.
     """
 
-    def send_json(self, status, payload):
+    def send_json(self, status: int, payload: dict[str, object]):
+        """Send a JSON response with the given status and payload."""
         data = json.dumps(payload).encode()
         self.send_response(status)
         self.send_header("Content-type", "application/json; charset=utf-8")
@@ -621,7 +627,8 @@ class LinkShortener(BaseHTTPRequestHandler):
         self.end_headers()
         self.wfile.write(data)
 
-    def do_GET(self):
+    def do_GET(self):  # pylint: disable=invalid-name
+        """Handle requests for the form or to resolve a short link."""
         # A GET request will either be for / (the root path) or for /some-name.
         # Strip off the / and we have either empty string or a name.
         shortname = unquote(self.path[1:])
@@ -645,7 +652,8 @@ class LinkShortener(BaseHTTPRequestHandler):
             page = FORM.format(style=STYLE, script=SCRIPT, known=render_links())
             self.wfile.write(page.encode())
 
-    def do_POST(self):
+    def do_POST(self):  # pylint: disable=invalid-name
+        """Generate a short URL from the JSON-compatible form request."""
         # Satu-satunya rute POST: /generate (dipanggil lewat fetch dari browser).
         if self.path != "/generate":
             self.send_json(404, {"error": "Rute tidak ditemukan."})
