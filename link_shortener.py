@@ -312,7 +312,7 @@ SCRIPT = """
         li.dataset.code = code;
         const a = document.createElement("a");
         a.href = `/${code}`;
-        a.textContent = `/${code}`;
+        a.textContent = a.href;
         const span = document.createElement("span");
         span.textContent = longuri;
         li.append(a, span);
@@ -340,7 +340,8 @@ SCRIPT = """
             return;
           }
 
-          shortInput.value = data.shortname;
+          // --- Ketika berhasil, tampilkan nama pendek dan tambahkan ke daftar beserta scheme dan host-nya. ---
+          shortInput.value = window.origin + "/" + data.shortname;
           addToList(data.shortname, data.longuri);
           showMessage(
             data.created
@@ -356,6 +357,11 @@ SCRIPT = """
           generateLabel.textContent = GENERATE_TITLE;
         }
       };
+
+      // --- Tautan pendek di daftar (ketika halaman di-refresh tampilkan semua short link dengan lengkap mencakup scheme dan host-nya) ---
+      document.querySelectorAll("#link-items a").forEach((a) => {
+        a.textContent = a.href;
+      });
 
       generateBtn.addEventListener("click", generate);
       longInput.addEventListener("keydown", (e) => {
