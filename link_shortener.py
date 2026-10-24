@@ -418,7 +418,7 @@ FORM = """<!DOCTYPE html>
       <p id="message" class="message" role="status" aria-live="polite"></p>
     </form>
 
-    <section class="card hidden-div" id="link-list">
+    <section class="card" id="link-list">
       <h2>Daftar link</h2>
       {known}
     </section>
