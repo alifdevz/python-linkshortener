@@ -199,6 +199,7 @@ STYLE = """
   li a:hover { text-decoration: underline; }
   li span { color: var(--muted); font-size: 0.9rem; display: block; }
   .empty { color: var(--muted); text-align: center; }
+  .hidden-div { display: none; }
 """
 
 SCRIPT = """
@@ -417,7 +418,7 @@ FORM = """<!DOCTYPE html>
       <p id="message" class="message" role="status" aria-live="polite"></p>
     </form>
 
-    <section class="card" id="link-list">
+    <section class="card hidden-div" id="link-list">
       <h2>Daftar link</h2>
       {known}
     </section>
