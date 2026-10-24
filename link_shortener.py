@@ -1,10 +1,13 @@
 """Server HTTP sederhana untuk menyimpan dan mengalihkan nama pendek ke URI panjang."""
 
 from http.server import ThreadingHTTPServer, BaseHTTPRequestHandler
-from urllib.parse import parse_qs, unquote, quote
+from urllib.parse import parse_qs, unquote, urlparse
 from html import escape
+import json
 import os
 import socket
+import sqlite3
+import string
 import requests
 
 # CSS dan JavaScript dipisah dari FORM karena FORM.format() menganggap { }
@@ -22,6 +25,8 @@ STYLE = """
     --border: #d1d5db;
     --shadow: rgba(0, 0, 0, 0.08);
     --ring: rgba(79, 70, 229, 0.2);
+    --danger: #dc2626;
+    --success: #16a34a;
   }
 
   /* Mode sistem: ikuti pengaturan OS, kecuali pengguna memaksa tema terang */
@@ -37,6 +42,8 @@ STYLE = """
       --border: #334155;
       --shadow: rgba(0, 0, 0, 0.4);
       --ring: rgba(129, 140, 248, 0.35);
+      --danger: #f87171;
+      --success: #4ade80;
     }
   }
 
@@ -52,6 +59,8 @@ STYLE = """
     --border: #334155;
     --shadow: rgba(0, 0, 0, 0.4);
     --ring: rgba(129, 140, 248, 0.35);
+    --danger: #f87171;
+    --success: #4ade80;
   }
 
   * { box-sizing: border-box; }
@@ -97,19 +106,14 @@ STYLE = """
     border-color: var(--primary);
     box-shadow: 0 0 0 3px var(--ring);
   }
-  button[type="submit"] {
-    width: 100%;
-    padding: 0.75rem;
-    border: 0;
-    border-radius: 8px;
-    background: var(--primary);
-    color: #fff;
-    font-size: 1rem;
-    font-weight: 600;
-    cursor: pointer;
-    transition: background 0.2s;
+  .message {
+    min-height: 1.25rem;
+    margin: 0;
+    font-size: 0.9rem;
+    color: var(--muted);
   }
-  button[type="submit"]:hover { background: var(--primary-dark); }
+  .message.error { color: var(--danger); }
+  .message.success { color: var(--success); }
   .btn-secondary {
     display: flex;
     align-items: center;
@@ -164,7 +168,7 @@ STYLE = """
   }
   .icon-btn svg { width: 1.1rem; height: 1.1rem; }
   .icon-btn .icon-check { display: none; }
-  .icon-btn.copied { color: #16a34a; }
+  .icon-btn.copied { color: var(--success); }
   .icon-btn.copied .icon-copy { display: none; }
   .icon-btn.copied .icon-check { display: block; }
   input[readonly] {
@@ -230,7 +234,6 @@ SCRIPT = """
 
     document.addEventListener("DOMContentLoaded", () => {
       const btn = document.getElementById("theme-toggle");
-      const generateShortBtn = document.getElementById("generate-short");
 
       const render = () => {
         btn.textContent = LABELS[mode];
@@ -278,6 +281,93 @@ SCRIPT = """
           copyBtn.title = COPY_TITLE;
         }, 1500);
       });
+
+      // --- Tombol generate nama pendek ---
+      const form = document.getElementById("shorten-form");
+      const longInput = document.getElementById("longuri");
+      const generateBtn = document.getElementById("generate-short");
+      const generateLabel = generateBtn.querySelector(".btn-label");
+      const GENERATE_TITLE = generateLabel.textContent;
+      const message = document.getElementById("message");
+      const listSection = document.getElementById("link-list");
+
+      const showMessage = (text, type = "") => {
+        message.textContent = text;
+        message.className = type ? `message ${type}` : "message";
+      };
+
+      // Tambahkan link baru ke daftar tanpa memuat ulang halaman.
+      const addToList = (code, longuri) => {
+        let list = document.getElementById("link-items");
+        if (!list) {
+          list = document.createElement("ul");
+          list.id = "link-items";
+          const empty = document.getElementById("empty-msg");
+          if (empty) empty.replaceWith(list);
+          else listSection.appendChild(list);
+        }
+        if (list.querySelector(`[data-code="${code}"]`)) return;
+
+        const li = document.createElement("li");
+        li.dataset.code = code;
+        const a = document.createElement("a");
+        a.href = `/${code}`;
+        a.textContent = `/${code}`;
+        const span = document.createElement("span");
+        span.textContent = longuri;
+        li.append(a, span);
+        list.prepend(li);
+      };
+
+      const generate = async () => {
+        if (!longInput.reportValidity()) return;
+
+        generateBtn.disabled = true;
+        generateLabel.textContent = "Memproses...";
+        showMessage("");
+
+        try {
+          const res = await fetch("/generate", {
+            method: "POST",
+            headers: { "Content-Type": "application/x-www-form-urlencoded" },
+            body: new URLSearchParams({ longuri: longInput.value.trim() })
+          });
+          const data = await res.json().catch(() => ({}));
+
+          if (!res.ok) {
+            shortInput.value = "";
+            showMessage(data.error || "Terjadi kesalahan pada server.", "error");
+            return;
+          }
+
+          shortInput.value = data.shortname;
+          addToList(data.shortname, data.longuri);
+          showMessage(
+            data.created
+              ? "Nama pendek berhasil dibuat."
+              : "URL ini sudah pernah dipendekkan, memakai nama yang sama.",
+            "success"
+          );
+        } catch {
+          shortInput.value = "";
+          showMessage("Tidak dapat terhubung ke server.", "error");
+        } finally {
+          generateBtn.disabled = false;
+          generateLabel.textContent = GENERATE_TITLE;
+        }
+      };
+
+      generateBtn.addEventListener("click", generate);
+      longInput.addEventListener("keydown", (e) => {
+        if (e.key === "Enter") {
+          e.preventDefault();
+          generate();
+        }
+      });
+      form.addEventListener("submit", (e) => {
+        e.preventDefault();
+        generate();
+      });
     });
   })();
 """
@@ -299,12 +389,12 @@ FORM = """<!DOCTYPE html>
       <button type="button" id="theme-toggle">Tema</button>
     </header>
 
-    <form method="POST" class="card">
+    <form id="shorten-form" class="card">
       <label>URL panjang
-        <input type="url" name="longuri" placeholder="https://contoh.com/halaman/panjang" required>
+        <input type="url" name="longuri" id="longuri" placeholder="https://contoh.com/halaman/panjang" required>
       </label>
       <button type="button" name="generate" id="generate-short" class="btn-secondary">
-        <span aria-hidden="true">🎲</span> Generate nama pendek
+        <span aria-hidden="true">🎲</span> <span class="btn-label">Generate nama pendek</span>
       </button>
       <div class="input-group">
         <input type="text" name="shortname" id="shortname" placeholder="contoh" readonly>
@@ -318,10 +408,10 @@ FORM = """<!DOCTYPE html>
           </svg>
         </button>
       </div>
-      <button type="submit">Simpan</button>
+      <p id="message" class="message" role="status" aria-live="polite"></p>
     </form>
 
-    <section class="card">
+    <section class="card" id="link-list">
       <h2>Daftar link</h2>
       {known}
     </section>
@@ -330,10 +420,182 @@ FORM = """<!DOCTYPE html>
 </html>
 """
 
-memory: dict[str, str] = {}
+# =====================================================================
+# DATABASE SQLITE & BASE62
+# =====================================================================
+DATABASE_FILE = "url_shortener.db"
+
+# Karakter Base62: total 62 karakter unik (0-9, a-z, A-Z)
+BASE62 = string.digits + string.ascii_lowercase + string.ascii_uppercase
+
+MAX_URL_LENGTH = 2048
+
+# Kode pendek selalu CODE_LENGTH karakter. ID database tidak dipakai langsung,
+# tetapi diacak dulu secara reversibel (bijeksi pada ruang 0..SPACE-1):
+#     kode = encode((id * MULTIPLIER + OFFSET) mod SPACE)
+# Agar tiap ID punya kode unik, MULTIPLIER harus koprima dengan SPACE.
+# SPACE = 2**6 * 31**6, jadi MULTIPLIER harus ganjil dan bukan kelipatan 31.
+# PENTING: jangan ubah CODE_LENGTH, MULTIPLIER, dan OFFSET setelah ada link
+# yang dibuat, karena semua kode lama akan berubah dan tidak bisa dibuka lagi.
+CODE_LENGTH = 6
+SPACE = len(BASE62) ** CODE_LENGTH
+MULTIPLIER = 41_237_905_113
+OFFSET = 27_182_818_284
+# Invers perkalian modular (pow melempar ValueError jika tidak koprima).
+MULTIPLIER_INVERSE = pow(MULTIPLIER, -1, SPACE)
 
 
-def check_uri(uri: str, timeout:int=5):
+def init_database():
+    """Membuat file database dan tabel 'urls' jika belum ada.
+
+    Kolom 'long_url' bersifat UNIQUE agar URL yang sama tidak tersimpan dua kali.
+    """
+    conn = sqlite3.connect(DATABASE_FILE)
+    try:
+        cursor = conn.cursor()
+        cursor.execute(
+            """
+            CREATE TABLE IF NOT EXISTS urls (
+                id INTEGER PRIMARY KEY AUTOINCREMENT,
+                long_url TEXT NOT NULL UNIQUE,
+                created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
+            )
+            """
+        )
+        conn.commit()
+    finally:
+        conn.close()
+
+
+def encode_base62(num):
+    """Mengubah angka ID database menjadi string pendek Base62."""
+    if num == 0:
+        return BASE62[0]
+
+    arr = []
+    base = len(BASE62)
+    while num:
+        num, rem = divmod(num, base)
+        arr.append(BASE62[rem])
+    arr.reverse()
+    return "".join(arr)
+
+
+def decode_base62(short_str):
+    """Mengubah string Base62 kembali menjadi angka ID database.
+
+    Melempar ValueError jika ada karakter di luar Base62.
+    """
+    base = len(BASE62)
+    num = 0
+    for char in short_str:
+        index = BASE62.find(char)
+        if index == -1:
+            raise ValueError(f"Karakter tidak valid: {char!r}")
+        num = num * base + index
+    return num
+
+
+def id_to_code(db_id):
+    """ID database -> kode pendek yang tampak acak (selalu CODE_LENGTH karakter)."""
+    if not 0 <= db_id < SPACE:
+        raise ValueError("ID di luar jangkauan kode pendek.")
+    scrambled = (db_id * MULTIPLIER + OFFSET) % SPACE
+    return encode_base62(scrambled).rjust(CODE_LENGTH, BASE62[0])
+
+
+def code_to_id(code):
+    """Kebalikan dari id_to_code. Melempar ValueError jika kode tidak valid."""
+    if len(code) != CODE_LENGTH:
+        raise ValueError("Panjang kode tidak sesuai.")
+    scrambled = decode_base62(code)
+    return ((scrambled - OFFSET) * MULTIPLIER_INVERSE) % SPACE
+
+
+def shorten_url(long_url):
+    """Simpan URL ke database lalu kembalikan (kode_pendek, baru_dibuat).
+
+    Jika URL sudah ada (melanggar UNIQUE), ID lama dipakai kembali.
+    """
+    conn = sqlite3.connect(DATABASE_FILE)
+    try:
+        cursor = conn.cursor()
+        try:
+            cursor.execute("INSERT INTO urls (long_url) VALUES (?)", (long_url,))
+            conn.commit()
+            assigned_id = cursor.lastrowid
+            created = True
+        except sqlite3.IntegrityError:
+            cursor.execute("SELECT id FROM urls WHERE long_url = ?", (long_url,))
+            assigned_id = cursor.fetchone()[0]
+            created = False
+    finally:
+        conn.close()
+
+    return id_to_code(assigned_id), created
+
+
+def get_original_url(short_code):
+    """Decode kode pendek dan cari URL aslinya. Kembalikan None jika tidak ada."""
+    try:
+        db_id = code_to_id(short_code)
+    except ValueError:
+        return None
+
+    conn = sqlite3.connect(DATABASE_FILE)
+    try:
+        row = conn.execute(
+            "SELECT long_url FROM urls WHERE id = ?", (db_id,)
+        ).fetchone()
+    finally:
+        conn.close()
+    return row[0] if row else None
+
+
+def list_links():
+    """Daftar (kode_pendek, url_panjang), yang terbaru di paling atas."""
+    conn = sqlite3.connect(DATABASE_FILE)
+    try:
+        rows = conn.execute(
+            "SELECT id, long_url FROM urls ORDER BY id DESC"
+        ).fetchall()
+    finally:
+        conn.close()
+    return [(id_to_code(row_id), long_url) for row_id, long_url in rows]
+
+
+def render_links():
+    """Buat HTML untuk daftar link. escape() mencegah XSS."""
+    rows = list_links()
+    if not rows:
+        return '<p class="empty" id="empty-msg">Belum ada link tersimpan.</p>'
+
+    items = "\n".join(
+        f'<li data-code="{escape(code)}"><a href="/{escape(code)}">/{escape(code)}</a>'
+        f"<span>{escape(long_url)}</span></li>"
+        for code, long_url in rows
+    )
+    return f'<ul id="link-items">{items}</ul>'
+
+
+def validate_long_url(url):
+    """Kembalikan pesan error jika URL tidak valid, atau None jika valid."""
+    if not url:
+        return "URL tidak boleh kosong."
+    if len(url) > MAX_URL_LENGTH:
+        return "URL terlalu panjang."
+    if any(c.isspace() or ord(c) < 32 for c in url):
+        return "URL tidak boleh mengandung spasi atau karakter kontrol."
+    try:
+        parsed = urlparse(url)
+    except ValueError:
+        return "URL tidak valid."
+    if parsed.scheme not in ("http", "https") or not parsed.netloc:
+        return "URL harus diawali dengan http:// atau https://"
+    return None
+
+
+def check_uri(uri, timeout=5):
     """
     Check whether this URI is reachable, i.e. does it return a 200 OK?"""
     try:
@@ -351,15 +613,24 @@ class LinkShortener(BaseHTTPRequestHandler):
     This is an HTTPServer that supports thread-based concurrency.
     """
 
+    def send_json(self, status, payload):
+        data = json.dumps(payload).encode()
+        self.send_response(status)
+        self.send_header("Content-type", "application/json; charset=utf-8")
+        self.send_header("Content-Length", str(len(data)))
+        self.end_headers()
+        self.wfile.write(data)
+
     def do_GET(self):
         # A GET request will either be for / (the root path) or for /some-name.
         # Strip off the / and we have either empty string or a name.
         shortname = unquote(self.path[1:])
 
         if shortname:
-            if shortname in memory:
+            long_url = get_original_url(shortname)
+            if long_url:
                 self.send_response(303)
-                self.send_header("Location", memory[shortname])
+                self.send_header("Location", long_url)
                 self.end_headers()
             else:
                 self.send_response(404)
@@ -371,57 +642,44 @@ class LinkShortener(BaseHTTPRequestHandler):
             self.send_response(200)
             self.send_header("Content-type", "text/html; charset=utf-8")
             self.end_headers()
-
-            if memory:
-                # escape() mencegah XSS; quote() membuat URL valid
-                # untuk nama pendek yang mengandung spasi/karakter khusus.
-                items = "\n".join(
-                    f'<li><a href="/{quote(key)}">/{escape(key)}</a>'
-                    f"<span>{escape(value)}</span></li>"
-                    for key, value in memory.items()
-                )
-                known = f"<ul>{items}</ul>"
-            else:
-                known = '<p class="empty">Belum ada link tersimpan.</p>'
-
-            self.wfile.write(FORM.format(style=STYLE, script=SCRIPT, known=known).encode())
+            page = FORM.format(style=STYLE, script=SCRIPT, known=render_links())
+            self.wfile.write(page.encode())
 
     def do_POST(self):
-        # How long was the message? (Use the Content-Length header.)
-        length = int(self.headers.get("Content-length", 0))
-
-        # Read the correct amount of data from the request and decode it
-        body = self.rfile.read(length).decode()
-        params = parse_qs(body)
-
-        if (
-            "longuri" not in params
-            or "shortname" not in params
-            or not params["shortname"][0].strip()
-        ):
-            # Extract the "longuri" and "shortname" fields from the request data.
-            self.send_response(400)
-            self.send_header("Content-type", "text/plain; charset=utf-8")
-            self.end_headers()
-            self.wfile.write("Error 400: Bad request!".encode())
+        # Satu-satunya rute POST: /generate (dipanggil lewat fetch dari browser).
+        if self.path != "/generate":
+            self.send_json(404, {"error": "Rute tidak ditemukan."})
             return
 
-        longuri = params["longuri"][0]
-        shortname = params["shortname"][0]
+        # How long was the message? (Use the Content-Length header.)
+        try:
+            length = int(self.headers.get("Content-length", 0))
+        except ValueError:
+            length = 0
+        if length > MAX_URL_LENGTH * 4:
+            self.send_json(413, {"error": "Permintaan terlalu besar."})
+            return
 
-        if check_uri(longuri):
-            # This URI is good!  Remember it under the specified name.
-            memory[shortname] = longuri
+        body = self.rfile.read(length).decode(errors="replace")
+        params = parse_qs(body)
+        longuri = params.get("longuri", [""])[0].strip()
 
-            # Serve a redirect to the root page (the form).
-            self.send_response(303)
-            self.send_header("Location", "/")
-            self.end_headers()
-        else:
-            self.send_response(404)
-            self.send_header("Content-type", "text/plain; charset=utf-8")
-            self.end_headers()
-            self.wfile.write("Error 404: Not found!".encode())
+        error = validate_long_url(longuri)
+        if error:
+            self.send_json(400, {"error": error})
+            return
+
+        if not check_uri(longuri):
+            self.send_json(
+                422, {"error": "URL tidak dapat diakses (harus membalas 200 OK)."}
+            )
+            return
+
+        code, created = shorten_url(longuri)
+        self.send_json(
+            201 if created else 200,
+            {"shortname": code, "longuri": longuri, "created": created},
+        )
 
 
 class DualStackServer(ThreadingHTTPServer):
@@ -440,6 +698,8 @@ class DualStackServer(ThreadingHTTPServer):
 
 if __name__ == "__main__":
     try:
+        init_database()
+
         # Use environment PORT if it is available. If not, use 8000
         port = int(os.environ.get("PORT", 8000))
         try:
