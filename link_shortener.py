@@ -282,7 +282,7 @@ SCRIPT = """
         }, 1500);
       });
 
-      // --- Tombol generate nama pendek ---
+      // --- Tombol generate tautan pendek ---
       const form = document.getElementById("shorten-form");
       const longInput = document.getElementById("longuri");
       const generateBtn = document.getElementById("generate-short");
@@ -400,7 +400,7 @@ FORM = """<!DOCTYPE html>
         <input type="url" name="longuri" id="longuri" placeholder="https://contoh.com/halaman/panjang" required>
       </label>
       <button type="button" name="generate" id="generate-short" class="btn-secondary">
-        <span aria-hidden="true">🎲</span> <span class="btn-label">Generate nama pendek</span>
+        <span aria-hidden="true">🎲</span> <span class="btn-label">Generate tautan pendek</span>
       </button>
       <div class="input-group">
         <input type="text" name="shortname" id="shortname" placeholder="contoh" readonly>
