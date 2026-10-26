@@ -4,11 +4,19 @@ from http.server import ThreadingHTTPServer, BaseHTTPRequestHandler
 from urllib.parse import parse_qs, unquote, urlparse
 from html import escape
 import json
+import importlib
 import os
 import socket
 import sqlite3
 import string
+import traceback
+from typing import Any, cast
 import requests
+
+try:
+  psycopg = importlib.import_module("psycopg")  # hanya diperlukan jika DATABASE_URL (PostgreSQL) dipakai
+except ImportError:
+    psycopg = None
 
 # CSS dan JavaScript dipisah dari FORM karena FORM.format() menganggap { }
 # sebagai placeholder. Kurung kurawal di dalam *nilai* yang disisipkan
@@ -428,9 +436,19 @@ FORM = """<!DOCTYPE html>
 """
 
 # =====================================================================
-# DATABASE SQLITE & BASE62
+# DATABASE (PostgreSQL jika DATABASE_URL diatur, selain itu SQLite) & BASE62
 # =====================================================================
+# Di Render, filesystem bersifat sementara sehingga file SQLite hilang setiap
+# deploy. Atur environment variable DATABASE_URL (misalnya dari Neon) agar data
+# disimpan di PostgreSQL eksternal. Tanpa DATABASE_URL, SQLite lokal dipakai
+# (cocok untuk pengembangan di komputer sendiri).
+DATABASE_URL = os.environ.get("DATABASE_URL", "")
 DATABASE_FILE = "url_shortener.db"
+
+# Kelas error "melanggar UNIQUE" untuk kedua jenis database.
+INTEGRITY_ERRORS = (sqlite3.IntegrityError,) + (
+  (cast(type[Exception], getattr(psycopg, "IntegrityError")),) if psycopg else ()
+)
 
 # Karakter Base62: total 62 karakter unik (0-9, a-z, A-Z)
 BASE62 = string.digits + string.ascii_lowercase + string.ascii_uppercase
@@ -452,22 +470,46 @@ OFFSET = 27_182_818_284
 MULTIPLIER_INVERSE = pow(MULTIPLIER, -1, SPACE)
 
 
+def connect_db():
+    """Buka koneksi baru: PostgreSQL jika DATABASE_URL diatur, selain itu SQLite."""
+    if DATABASE_URL:
+        if psycopg is None:
+            raise RuntimeError(
+                'DATABASE_URL diatur, tetapi psycopg belum terpasang '
+                '(pip install "psycopg[binary]").'
+            )
+        return psycopg.connect(DATABASE_URL, connect_timeout=10)
+    return sqlite3.connect(DATABASE_FILE)
+
+
+def run(conn: Any, sql: str, params: tuple[Any, ...] = ()):
+    """Jalankan query. Placeholder ditulis '?' dan diubah ke '%s' untuk PostgreSQL."""
+    if DATABASE_URL:
+        sql = sql.replace("?", "%s")
+    return conn.execute(sql, params)
+
+
 def init_database():
-    """Membuat file database dan tabel 'urls' jika belum ada.
+    """Membuat tabel 'urls' jika belum ada.
 
     Kolom 'long_url' bersifat UNIQUE agar URL yang sama tidak tersimpan dua kali.
     """
-    conn = sqlite3.connect(DATABASE_FILE)
+    if DATABASE_URL:
+        id_column = "BIGINT GENERATED ALWAYS AS IDENTITY PRIMARY KEY"
+    else:
+        id_column = "INTEGER PRIMARY KEY AUTOINCREMENT"
+
+    conn = connect_db()
     try:
-        cursor = conn.cursor()
-        cursor.execute(
-            """
+        run(
+            conn,
+            f"""
             CREATE TABLE IF NOT EXISTS urls (
-                id INTEGER PRIMARY KEY AUTOINCREMENT,
+                id {id_column},
                 long_url TEXT NOT NULL UNIQUE,
                 created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
             )
-            """
+            """,
         )
         conn.commit()
     finally:
@@ -524,21 +566,33 @@ def shorten_url(long_url: str) -> tuple[str, bool]:
 
     Jika URL sudah ada (melanggar UNIQUE), ID lama dipakai kembali.
     """
-    conn = sqlite3.connect(DATABASE_FILE)
+    conn = connect_db()
     try:
-        cursor = conn.cursor()
         try:
-            cursor.execute("INSERT INTO urls (long_url) VALUES (?)", (long_url,))
+            if DATABASE_URL:
+                row = run(
+                    conn,
+                    "INSERT INTO urls (long_url) VALUES (?) RETURNING id",
+                    (long_url,),
+                ).fetchone()
+                assigned_id = row[0]
+            else:
+                cursor = run(conn, "INSERT INTO urls (long_url) VALUES (?)", (long_url,))
+                assigned_id = cursor.lastrowid
             conn.commit()
-            assigned_id = cursor.lastrowid
             if assigned_id is None:
-                raise sqlite3.DatabaseError("Gagal memperoleh ID URL baru")
+                raise RuntimeError("Gagal memperoleh ID URL baru")
             created = True
-        except sqlite3.IntegrityError as exc:
-            cursor.execute("SELECT id FROM urls WHERE long_url = ?", (long_url,))
-            row = cursor.fetchone()
+        except INTEGRITY_ERRORS as exc:
+            # PostgreSQL membatalkan transaksi setelah error, jadi rollback dulu.
+            conn.rollback()
+            row = run(
+                conn, "SELECT id FROM urls WHERE long_url = ?", (long_url,)
+            ).fetchone()
             if row is None:
-                raise sqlite3.DatabaseError("URL tidak ditemukan setelah pelanggaran UNIQUE") from exc
+                raise RuntimeError(
+                    "URL tidak ditemukan setelah pelanggaran UNIQUE"
+                ) from exc
             assigned_id = row[0]
             created = False
     finally:
@@ -554,11 +608,9 @@ def get_original_url(short_code: str):
     except ValueError:
         return None
 
-    conn = sqlite3.connect(DATABASE_FILE)
+    conn = connect_db()
     try:
-        row = conn.execute(
-            "SELECT long_url FROM urls WHERE id = ?", (db_id,)
-        ).fetchone()
+        row = run(conn, "SELECT long_url FROM urls WHERE id = ?", (db_id,)).fetchone()
     finally:
         conn.close()
     return row[0] if row else None
@@ -566,11 +618,9 @@ def get_original_url(short_code: str):
 
 def list_links():
     """Daftar (kode_pendek, url_panjang), yang terbaru di paling atas."""
-    conn = sqlite3.connect(DATABASE_FILE)
+    conn = connect_db()
     try:
-        rows = conn.execute(
-            "SELECT id, long_url FROM urls ORDER BY id DESC"
-        ).fetchall()
+        rows = run(conn, "SELECT id, long_url FROM urls ORDER BY id DESC").fetchall()
     finally:
         conn.close()
     return [(id_to_code(row_id), long_url) for row_id, long_url in rows]
@@ -594,7 +644,7 @@ def validate_long_url(url: str):
     """Kembalikan pesan error jika URL tidak valid, atau None jika valid."""
     if not url:
         return "URL tidak boleh kosong."
-    if len(url) > MAX_URL_LENGTH:
+    if len(url.encode("utf-8")) > MAX_URL_LENGTH:
         return "URL terlalu panjang."
     if any(c.isspace() or ord(c) < 32 for c in url):
         return "URL tidak boleh mengandung spasi atau karakter kontrol."
@@ -634,6 +684,18 @@ class LinkShortener(BaseHTTPRequestHandler):
         self.end_headers()
         self.wfile.write(data)
 
+    def db_unavailable(self, as_json: bool = False):
+        """Balas 503 ketika database tidak dapat diakses (error dicetak ke log)."""
+        traceback.print_exc()
+        message = "Database sedang tidak tersedia. Coba lagi sebentar lagi."
+        if as_json:
+            self.send_json(503, {"error": message})
+        else:
+            self.send_response(503)
+            self.send_header("Content-type", "text/plain; charset=utf-8")
+            self.end_headers()
+            self.wfile.write(message.encode())
+
     def do_GET(self):  # pylint: disable=invalid-name
         """Handle requests for the form or to resolve a short link."""
         # A GET request will either be for / (the root path) or for /some-name.
@@ -641,7 +703,11 @@ class LinkShortener(BaseHTTPRequestHandler):
         shortname = unquote(self.path[1:])
 
         if shortname:
-            long_url = get_original_url(shortname)
+            try:
+                long_url = get_original_url(shortname)
+            except Exception:  # pylint: disable=broad-exception-caught
+                self.db_unavailable()
+                return
             if long_url:
                 self.send_response(303)
                 self.send_header("Location", long_url)
@@ -653,10 +719,14 @@ class LinkShortener(BaseHTTPRequestHandler):
                 self.wfile.write(f"I don't know {shortname}.".encode())
         else:
             # Root path. Send the form.
+            try:
+                page = FORM.format(style=STYLE, script=SCRIPT, known=render_links())
+            except Exception:  # pylint: disable=broad-exception-caught
+                self.db_unavailable()
+                return
             self.send_response(200)
             self.send_header("Content-type", "text/html; charset=utf-8")
             self.end_headers()
-            page = FORM.format(style=STYLE, script=SCRIPT, known=render_links())
             self.wfile.write(page.encode())
 
     def do_POST(self):  # pylint: disable=invalid-name
@@ -690,7 +760,11 @@ class LinkShortener(BaseHTTPRequestHandler):
             )
             return
 
-        code, created = shorten_url(longuri)
+        try:
+            code, created = shorten_url(longuri)
+        except Exception:  # pylint: disable=broad-exception-caught
+            self.db_unavailable(as_json=True)
+            return
         self.send_json(
             201 if created else 200,
             {"shortname": code, "longuri": longuri, "created": created},
