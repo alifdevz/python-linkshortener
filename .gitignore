@@ -221,4 +221,4 @@ __marimo__/
 .streamlit/secrets.toml
 
 # Database
-url_shortener.db
+*.db
