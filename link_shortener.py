@@ -261,7 +261,7 @@ SCRIPT = """
       // --- Tombol salin nama pendek ---
       const shortInput = document.getElementById("shortname");
       const copyBtn = document.getElementById("copy-short");
-      const COPY_TITLE = "Salin nama pendek";
+      const COPY_TITLE = "Copy";
       let copyTimer;
 
       const copyText = async (text) => {
