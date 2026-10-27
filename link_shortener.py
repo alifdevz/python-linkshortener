@@ -411,7 +411,7 @@ FORM = """<!DOCTYPE html>
       </button>
       <div class="input-group">
         <input type="text" name="shortname" id="shortname" placeholder="contoh" readonly>
-        <button type="button" id="copy-short" class="icon-btn" title="Salin nama pendek" aria-label="Salin nama pendek">
+        <button type="button" id="copy-short" class="icon-btn" title="Copy" aria-label="Copy">
           <svg class="icon-copy" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true">
             <rect x="9" y="9" width="13" height="13" rx="2"></rect>
             <path d="M5 15H4a2 2 0 0 1-2-2V4a2 2 0 0 1 2-2h9a2 2 0 0 1 2 2v1"></path>
