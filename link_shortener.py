@@ -353,9 +353,7 @@ SCRIPT = """
           shortInput.value = window.origin + "/" + data.shortname;
           addToList(data.shortname, data.longuri);
           showMessage(
-            data.created
-              ? "Nama pendek berhasil dibuat."
-              : "URL ini sudah pernah dipendekkan, memakai nama yang sama.",
+            "Berhasil membuat tautan pendek.",
             "success"
           );
         } catch {
