@@ -10,3 +10,4 @@ platformdirs==4.12.3
 pytokens==0.4.1
 requests==2.34.2
 urllib3==2.8.0
+psycopg[binary]
