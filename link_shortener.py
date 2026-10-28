@@ -14,7 +14,8 @@ from typing import Any, cast
 import requests
 
 try:
-  psycopg = importlib.import_module("psycopg")  # hanya diperlukan jika DATABASE_URL (PostgreSQL) dipakai
+    # hanya diperlukan jika DATABASE_URL (PostgreSQL) dipakai
+    psycopg = importlib.import_module("psycopg")
 except ImportError:
     psycopg = None
 
