@@ -530,7 +530,7 @@ NOT_FOUND = """<!DOCTYPE html>
     <section class="card not-found">
       <div class="not-found-icon" aria-hidden="true">🔍</div>
       <h2>Link tidak ditemukan</h2>
-      <p>Saya tidak menemukan <code>{shortname}</code></p>
+      <p>Saya tidak menemukan <code>{link}</code></p>
       <p class="hint">Periksa kembali link pendeknya, atau buat yang baru.</p>
       <a class="btn-link" href="/">Kembali ke beranda</a>
     </section>
@@ -791,12 +791,26 @@ class LinkShortener(BaseHTTPRequestHandler):
             self.end_headers()
             self.wfile.write(message.encode())
 
+    def get_base_url(self) -> str:
+        """Alamat dasar yang dipakai pengunjung: scheme://host[:port]."""
+        # Di balik proxy (seperti Render), SSL diakhiri oleh proxy sehingga
+        # skema asli dikirim lewat header X-Forwarded-Proto.
+        forwarded = self.headers.get("X-Forwarded-Proto", "http")
+        scheme = forwarded.split(",")[0].strip().lower()
+        if scheme not in ("http", "https"):
+            scheme = "http"
+        # Tanpa header Host, pakai port tempat koneksi ini diterima.
+        port = self.connection.getsockname()[1]
+        host = self.headers.get("Host") or f"localhost:{port}"
+        return f"{scheme}://{host}"
+
     def send_not_found(self, shortname: str):
         """Balas 404 dengan halaman HTML yang senada dengan halaman utama."""
-        # Batasi panjang yang ditampilkan; escape() mencegah XSS dari path.
-        shown = shortname if len(shortname) <= 80 else shortname[:80] + "…"
+        # Batasi panjang yang ditampilkan; escape() mencegah XSS dari path/header.
+        link = f"{self.get_base_url()}/{shortname}"
+        shown = link if len(link) <= 200 else link[:200] + "…"
         page = NOT_FOUND.format(
-            style=STYLE, theme_script=THEME_SCRIPT, shortname=escape(shown)
+            style=STYLE, theme_script=THEME_SCRIPT, link=escape(shown)
         )
         data = page.encode()
         self.send_response(404)
