@@ -2,7 +2,6 @@
 
 from http.server import ThreadingHTTPServer, BaseHTTPRequestHandler
 from urllib.parse import parse_qs, unquote, urlparse
-from html import escape
 import json
 import importlib
 import os
@@ -197,17 +196,21 @@ STYLE = """
     cursor: pointer;
   }
   #theme-toggle:hover { border-color: var(--primary); }
-  ul { list-style: none; margin: 0; padding: 0; }
-  li {
-    padding: 0.7rem 0;
-    border-bottom: 1px solid var(--border);
+  .hint { margin: 0 0 1rem; color: var(--muted); font-size: 0.9rem; }
+  .result {
+    margin-top: 0.25rem;
+    padding: 0.8rem 1rem;
+    border: 1px solid var(--border);
+    border-left-width: 4px;
+    border-radius: 8px;
     word-break: break-all;
   }
-  li:last-child { border-bottom: 0; }
-  li a { color: var(--primary); font-weight: 600; text-decoration: none; }
-  li a:hover { text-decoration: underline; }
-  li span { color: var(--muted); font-size: 0.9rem; display: block; }
-  .empty { color: var(--muted); text-align: center; }
+  .result:empty { display: none; }
+  .result p { margin: 0 0 0.35rem; font-weight: 600; }
+  .result p:last-child { margin-bottom: 0; }
+  .result a { color: var(--primary); }
+  .result.success { border-left-color: var(--success); }
+  .result.error { border-left-color: var(--danger); }
   .hidden-div { display: none; }
 """
 
@@ -299,34 +302,10 @@ SCRIPT = """
       const generateLabel = generateBtn.querySelector(".btn-label");
       const GENERATE_TITLE = generateLabel.textContent;
       const message = document.getElementById("message");
-      const listSection = document.getElementById("link-list");
 
       const showMessage = (text, type = "") => {
         message.textContent = text;
         message.className = type ? `message ${type}` : "message";
-      };
-
-      // Tambahkan link baru ke daftar tanpa memuat ulang halaman.
-      const addToList = (code, longuri) => {
-        let list = document.getElementById("link-items");
-        if (!list) {
-          list = document.createElement("ul");
-          list.id = "link-items";
-          const empty = document.getElementById("empty-msg");
-          if (empty) empty.replaceWith(list);
-          else listSection.appendChild(list);
-        }
-        if (list.querySelector(`[data-code="${code}"]`)) return;
-
-        const li = document.createElement("li");
-        li.dataset.code = code;
-        const a = document.createElement("a");
-        a.href = `/${code}`;
-        a.textContent = a.href;
-        const span = document.createElement("span");
-        span.textContent = longuri;
-        li.append(a, span);
-        list.prepend(li);
       };
 
       const generate = async () => {
@@ -350,9 +329,8 @@ SCRIPT = """
             return;
           }
 
-          // --- Ketika berhasil, tampilkan nama pendek dan tambahkan ke daftar beserta scheme dan host-nya. ---
+          // Ketika berhasil, tampilkan tautan pendek lengkap (scheme dan host).
           shortInput.value = window.origin + "/" + data.shortname;
-          addToList(data.shortname, data.longuri);
           showMessage(
             "Berhasil membuat tautan pendek.",
             "success"
@@ -366,11 +344,6 @@ SCRIPT = """
         }
       };
 
-      // --- Tautan pendek di daftar (ketika halaman di-refresh tampilkan semua short link dengan lengkap mencakup scheme dan host-nya) ---
-      document.querySelectorAll("#link-items a").forEach((a) => {
-        a.textContent = a.href;
-      });
-
       generateBtn.addEventListener("click", generate);
       longInput.addEventListener("keydown", (e) => {
         if (e.key === "Enter") {
@@ -381,6 +354,64 @@ SCRIPT = """
       form.addEventListener("submit", (e) => {
         e.preventDefault();
         generate();
+      });
+
+      // --- Verifikasi link: cari URL asli dari link pendek ---
+      const verifyForm = document.getElementById("verify-form");
+      const verifyInput = document.getElementById("shortlink");
+      const verifyBtn = document.getElementById("verify-btn");
+      const verifyLabel = verifyBtn.querySelector(".btn-label");
+      const VERIFY_TITLE = verifyLabel.textContent;
+      const verifyResult = document.getElementById("verify-result");
+
+      const showResult = (type, text, url = "") => {
+        verifyResult.className = `result ${type}`;
+        verifyResult.replaceChildren();
+        const p = document.createElement("p");
+        p.textContent = text;
+        verifyResult.append(p);
+        if (url) {
+          const a = document.createElement("a");
+          a.href = url;
+          a.textContent = url;
+          a.target = "_blank";
+          a.rel = "noopener noreferrer";
+          verifyResult.append(a);
+        }
+      };
+
+      const verify = async () => {
+        if (!verifyInput.reportValidity()) return;
+
+        verifyBtn.disabled = true;
+        verifyLabel.textContent = "Memeriksa...";
+        verifyResult.className = "result";
+        verifyResult.replaceChildren();
+
+        try {
+          const res = await fetch("/verify", {
+            method: "POST",
+            headers: { "Content-Type": "application/x-www-form-urlencoded" },
+            body: new URLSearchParams({ shortlink: verifyInput.value.trim() })
+          });
+          const data = await res.json().catch(() => ({}));
+
+          if (!res.ok) {
+            showResult("error", data.error || "Terjadi kesalahan pada server.");
+            return;
+          }
+          showResult("success", "Link ini mengarah ke:", data.longuri);
+        } catch {
+          showResult("error", "Tidak dapat terhubung ke server.");
+        } finally {
+          verifyBtn.disabled = false;
+          verifyLabel.textContent = VERIFY_TITLE;
+        }
+      };
+
+      verifyForm.addEventListener("submit", (e) => {
+        e.preventDefault();
+        verify();
       });
     });
   })();
@@ -425,9 +456,18 @@ FORM = """<!DOCTYPE html>
       <p id="message" class="message" role="status" aria-live="polite"></p>
     </form>
 
-    <section class="card" id="link-list">
-      <h2>Daftar link</h2>
-      {known}
+    <section class="card" id="verify-section">
+      <h2>Verifikasi link</h2>
+      <p class="hint">Tempel link pendek untuk melihat tujuan aslinya sebelum membukanya.</p>
+      <form id="verify-form">
+        <label>Link pendek
+          <input type="text" id="shortlink" placeholder="https://.../kode atau kode saja" autocomplete="off" spellcheck="false" required>
+        </label>
+        <button type="submit" id="verify-btn" class="btn-secondary">
+          <span aria-hidden="true">🔍</span> <span class="btn-label">Cek link</span>
+        </button>
+      </form>
+      <div id="verify-result" class="result" role="status" aria-live="polite"></div>
     </section>
   </main>
 </body>
@@ -615,30 +655,6 @@ def get_original_url(short_code: str):
     return row[0] if row else None
 
 
-def list_links():
-    """Daftar (kode_pendek, url_panjang), yang terbaru di paling atas."""
-    conn = connect_db()
-    try:
-        rows = run(conn, "SELECT id, long_url FROM urls ORDER BY id DESC").fetchall()
-    finally:
-        conn.close()
-    return [(id_to_code(row_id), long_url) for row_id, long_url in rows]
-
-
-def render_links():
-    """Buat HTML untuk daftar link. escape() mencegah XSS."""
-    rows = list_links()
-    if not rows:
-        return '<p class="empty" id="empty-msg">Belum ada link tersimpan.</p>'
-
-    items = "\n".join(
-        f'<li data-code="{escape(code)}"><a href="/{escape(code)}">/{escape(code)}</a>'
-        f"<span>{escape(long_url)}</span></li>"
-        for code, long_url in rows
-    )
-    return f'<ul id="link-items">{items}</ul>'
-
-
 def validate_long_url(url: str):
     """Kembalikan pesan error jika URL tidak valid, atau None jika valid."""
     if not url:
@@ -654,6 +670,21 @@ def validate_long_url(url: str):
     if parsed.scheme not in ("http", "https") or not parsed.netloc:
         return "URL harus diawali dengan http:// atau https://"
     return None
+
+
+def extract_short_code(text: str):
+    """Ambil (host, kode) dari input pengguna, atau None jika tidak dapat diuraikan.
+
+    Menerima 'https://host/kode', 'host/kode', '/kode', atau 'kode'.
+    Host berupa string kosong jika tidak disertakan.
+    """
+    if "://" not in text and "/" in text and not text.startswith("/"):
+        text = "//" + text  # 'host/kode' -> urlparse mengenali host
+    try:
+        parsed = urlparse(text)
+    except ValueError:
+        return None
+    return parsed.netloc, parsed.path.strip("/")
 
 
 def check_uri(uri: str, timeout: float = 5):
@@ -718,23 +749,14 @@ class LinkShortener(BaseHTTPRequestHandler):
                 self.wfile.write(f"I don't know {shortname}.".encode())
         else:
             # Root path. Send the form.
-            try:
-                page = FORM.format(style=STYLE, script=SCRIPT, known=render_links())
-            except Exception:  # pylint: disable=broad-exception-caught
-                self.db_unavailable()
-                return
+            page = FORM.format(style=STYLE, script=SCRIPT)
             self.send_response(200)
             self.send_header("Content-type", "text/html; charset=utf-8")
             self.end_headers()
             self.wfile.write(page.encode())
 
-    def do_POST(self):  # pylint: disable=invalid-name
-        """Generate a short URL from the JSON-compatible form request."""
-        # Satu-satunya rute POST: /generate (dipanggil lewat fetch dari browser).
-        if self.path != "/generate":
-            self.send_json(404, {"error": "Rute tidak ditemukan."})
-            return
-
+    def read_form(self):
+        """Baca badan form. Kembalikan None (dan balas 413) jika terlalu besar."""
         # How long was the message? (Use the Content-Length header.)
         try:
             length = int(self.headers.get("Content-length", 0))
@@ -742,10 +764,25 @@ class LinkShortener(BaseHTTPRequestHandler):
             length = 0
         if length > MAX_URL_LENGTH * 4:
             self.send_json(413, {"error": "Permintaan terlalu besar."})
-            return
+            return None
 
         body = self.rfile.read(length).decode(errors="replace")
-        params = parse_qs(body)
+        return parse_qs(body)
+
+    def do_POST(self):  # pylint: disable=invalid-name
+        """Rute POST: /generate (buat link pendek) dan /verify (cari URL asli)."""
+        handlers = {"/generate": self.handle_generate, "/verify": self.handle_verify}
+        handler = handlers.get(self.path)
+        if handler is None:
+            self.send_json(404, {"error": "Rute tidak ditemukan."})
+            return
+
+        params = self.read_form()
+        if params is not None:
+            handler(params)
+
+    def handle_generate(self, params: dict[str, list[str]]):
+        """Buat link pendek dari URL panjang (dipanggil lewat fetch dari browser)."""
         longuri = params.get("longuri", [""])[0].strip()
 
         error = validate_long_url(longuri)
@@ -768,6 +805,38 @@ class LinkShortener(BaseHTTPRequestHandler):
             201 if created else 200,
             {"shortname": code, "longuri": longuri, "created": created},
         )
+
+    def handle_verify(self, params: dict[str, list[str]]):
+        """Cari URL asli dari link pendek tanpa mengalihkan pengguna."""
+        text = params.get("shortlink", [""])[0].strip()
+        if not text:
+            self.send_json(400, {"error": "Link pendek tidak boleh kosong."})
+            return
+
+        parts = None
+        if len(text.encode("utf-8")) <= MAX_URL_LENGTH and not any(
+            c.isspace() or ord(c) < 32 for c in text
+        ):
+            parts = extract_short_code(text)
+        if parts is None:
+            self.send_json(400, {"error": "Format link pendek tidak valid."})
+            return
+
+        parsed_host, code = parts
+        # Link dari domain lain tidak boleh "terverifikasi" oleh layanan ini.
+        if parsed_host and parsed_host.lower() != self.headers.get("Host", "").lower():
+            self.send_json(400, {"error": "Link ini bukan berasal dari layanan ini."})
+            return
+
+        try:
+            long_url = get_original_url(code)
+        except Exception:  # pylint: disable=broad-exception-caught
+            self.db_unavailable(as_json=True)
+            return
+        if not long_url:
+            self.send_json(404, {"error": "Link pendek tidak ditemukan."})
+            return
+        self.send_json(200, {"code": code, "longuri": long_url})
 
 
 class DualStackServer(ThreadingHTTPServer):
