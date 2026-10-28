@@ -2,6 +2,7 @@
 
 from http.server import ThreadingHTTPServer, BaseHTTPRequestHandler
 from urllib.parse import parse_qs, unquote, urlparse
+from html import escape
 import json
 import importlib
 import os
@@ -20,7 +21,7 @@ except ImportError:
 
 # CSS dan JavaScript dipisah dari FORM karena FORM.format() menganggap { }
 # sebagai placeholder. Kurung kurawal di dalam *nilai* yang disisipkan
-# (style=STYLE, script=SCRIPT) tidak diproses oleh .format().
+# (style=STYLE, script=SCRIPT, dan sebagainya) tidak diproses oleh .format().
 STYLE = """
   :root {
     color-scheme: light;
@@ -211,10 +212,37 @@ STYLE = """
   .result a { color: var(--primary); }
   .result.success { border-left-color: var(--success); }
   .result.error { border-left-color: var(--danger); }
+  .not-found { text-align: center; }
+  .not-found-icon { font-size: 3rem; margin-bottom: 0.5rem; }
+  .not-found h2 { margin: 0 0 0.75rem; }
+  .not-found p { margin: 0 0 0.5rem; word-break: break-all; }
+  .not-found code {
+    padding: 0.1rem 0.4rem;
+    border: 1px solid var(--border);
+    border-radius: 6px;
+    background: var(--bg);
+    font-weight: 600;
+  }
+  .not-found .hint { margin-bottom: 1.25rem; }
+  .btn-link {
+    display: inline-block;
+    padding: 0.7rem 1.25rem;
+    border: 1.5px solid var(--primary);
+    border-radius: 8px;
+    color: var(--primary);
+    font-weight: 600;
+    text-decoration: none;
+    transition: background 0.2s, box-shadow 0.2s;
+  }
+  .btn-link:hover { background: var(--ring); }
+  .btn-link:focus-visible {
+    outline: none;
+    box-shadow: 0 0 0 3px var(--ring);
+  }
   .hidden-div { display: none; }
 """
 
-SCRIPT = """
+THEME_SCRIPT = """
   (() => {
     const KEY = "theme";
     const MODES = ["system", "dark", "light"];
@@ -247,6 +275,7 @@ SCRIPT = """
 
     document.addEventListener("DOMContentLoaded", () => {
       const btn = document.getElementById("theme-toggle");
+      if (!btn) return;
 
       const render = () => {
         btn.textContent = LABELS[mode];
@@ -261,7 +290,13 @@ SCRIPT = """
       });
 
       render();
+    });
+  })();
+"""
 
+SCRIPT = """
+  (() => {
+    document.addEventListener("DOMContentLoaded", () => {
       // --- Tombol salin nama pendek ---
       const shortInput = document.getElementById("shortname");
       const copyBtn = document.getElementById("copy-short");
@@ -425,6 +460,7 @@ FORM = """<!DOCTYPE html>
   <title>Link Shortener</title>
   <link rel="icon" href="data:image/svg+xml,<svg xmlns=%27http://www.w3.org/2000/svg%27 viewBox=%270 0 100 100%27><text y=%27.9em%27 font-size=%2790%27>🔗</text></svg>">
   <style>{style}</style>
+  <script>{theme_script}</script>
   <script>{script}</script>
 </head>
 <body>
@@ -468,6 +504,35 @@ FORM = """<!DOCTYPE html>
         </button>
       </form>
       <div id="verify-result" class="result" role="status" aria-live="polite"></div>
+    </section>
+  </main>
+</body>
+</html>
+"""
+
+NOT_FOUND = """<!DOCTYPE html>
+<html lang="id">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <title>Link tidak ditemukan - Link Shortener</title>
+  <link rel="icon" href="data:image/svg+xml,<svg xmlns=%27http://www.w3.org/2000/svg%27 viewBox=%270 0 100 100%27><text y=%27.9em%27 font-size=%2790%27>🔗</text></svg>">
+  <style>{style}</style>
+  <script>{theme_script}</script>
+</head>
+<body>
+  <main>
+    <header>
+      <h1>🔗 Link Shortener</h1>
+      <button type="button" id="theme-toggle">Tema</button>
+    </header>
+
+    <section class="card not-found">
+      <div class="not-found-icon" aria-hidden="true">🔍</div>
+      <h2>Link tidak ditemukan</h2>
+      <p>Saya tidak menemukan <code>{shortname}</code></p>
+      <p class="hint">Periksa kembali link pendeknya, atau buat yang baru.</p>
+      <a class="btn-link" href="/">Kembali ke beranda</a>
     </section>
   </main>
 </body>
@@ -726,6 +791,20 @@ class LinkShortener(BaseHTTPRequestHandler):
             self.end_headers()
             self.wfile.write(message.encode())
 
+    def send_not_found(self, shortname: str):
+        """Balas 404 dengan halaman HTML yang senada dengan halaman utama."""
+        # Batasi panjang yang ditampilkan; escape() mencegah XSS dari path.
+        shown = shortname if len(shortname) <= 80 else shortname[:80] + "…"
+        page = NOT_FOUND.format(
+            style=STYLE, theme_script=THEME_SCRIPT, shortname=escape(shown)
+        )
+        data = page.encode()
+        self.send_response(404)
+        self.send_header("Content-type", "text/html; charset=utf-8")
+        self.send_header("Content-Length", str(len(data)))
+        self.end_headers()
+        self.wfile.write(data)
+
     def do_GET(self):  # pylint: disable=invalid-name
         """Handle requests for the form or to resolve a short link."""
         # A GET request will either be for / (the root path) or for /some-name.
@@ -743,13 +822,10 @@ class LinkShortener(BaseHTTPRequestHandler):
                 self.send_header("Location", long_url)
                 self.end_headers()
             else:
-                self.send_response(404)
-                self.send_header("Content-type", "text/plain; charset=utf-8")
-                self.end_headers()
-                self.wfile.write(f"I don't know {shortname}.".encode())
+                self.send_not_found(shortname)
         else:
             # Root path. Send the form.
-            page = FORM.format(style=STYLE, script=SCRIPT)
+            page = FORM.format(style=STYLE, theme_script=THEME_SCRIPT, script=SCRIPT)
             self.send_response(200)
             self.send_header("Content-type", "text/html; charset=utf-8")
             self.end_headers()
@@ -822,9 +898,9 @@ class LinkShortener(BaseHTTPRequestHandler):
             self.send_json(400, {"error": "Format link pendek tidak valid."})
             return
 
-        parsed_host, code = parts
+        host, code = parts
         # Link dari domain lain tidak boleh "terverifikasi" oleh layanan ini.
-        if parsed_host and parsed_host.lower() != self.headers.get("Host", "").lower():
+        if host and host.lower() != self.headers.get("Host", "").lower():
             self.send_json(400, {"error": "Link ini bukan berasal dari layanan ini."})
             return
 
@@ -853,7 +929,8 @@ class DualStackServer(ThreadingHTTPServer):
         super().server_bind()
 
 
-if __name__ == "__main__":
+def main():
+    """Siapkan database, jalankan server, dan tampilkan alamatnya."""
     try:
         init_database()
 
@@ -873,3 +950,7 @@ if __name__ == "__main__":
         httpd.serve_forever()
     except KeyboardInterrupt:
         print("\nKeyboard interruption. The program is stopped by user!")
+
+
+if __name__ == "__main__":
+    main()
