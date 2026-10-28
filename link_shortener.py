@@ -530,7 +530,7 @@ NOT_FOUND = """<!DOCTYPE html>
     <section class="card not-found">
       <div class="not-found-icon" aria-hidden="true">🔍</div>
       <h2>Link tidak ditemukan</h2>
-      <p>Saya tidak menemukan <code>{link}</code></p>
+      <p>Saya tidak menemukan: <br /> <code>{link}</code></p>
       <p class="hint">Periksa kembali link pendeknya, atau buat yang baru.</p>
       <a class="btn-link" href="/">Kembali ke beranda</a>
     </section>
