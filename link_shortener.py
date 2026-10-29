@@ -3,6 +3,7 @@
 from http.server import ThreadingHTTPServer, BaseHTTPRequestHandler
 from urllib.parse import parse_qs, unquote, urlparse
 from html import escape
+from pathlib import Path
 import json
 import importlib
 import os
@@ -12,13 +13,36 @@ import string
 import traceback
 from typing import Any, cast
 import requests
-from frontend import FORM, I18N_SCRIPT, NOT_FOUND, SCRIPT, STYLE, THEME_SCRIPT
 
 try:
     # hanya diperlukan jika DATABASE_URL (PostgreSQL) dipakai
     psycopg = importlib.import_module("psycopg")
 except ImportError:
     psycopg = None
+
+# =====================================================================
+# TAMPILAN: template HTML (templates/) dan file statis CSS/JS (static/)
+# =====================================================================
+BASE_DIR = Path(__file__).resolve().parent
+STATIC_DIR = BASE_DIR / "static"
+
+# Hanya nama file di daftar ini yang dilayani lewat /static/<nama>. Nama dicocokkan
+# persis (bukan disambung ke path), sehingga file di luar folder tidak bisa dibaca.
+STATIC_FILES = {
+    "style.css": "text/css; charset=utf-8",
+    "i18n.js": "text/javascript; charset=utf-8",
+    "theme.js": "text/javascript; charset=utf-8",
+    "app.js": "text/javascript; charset=utf-8",
+}
+
+
+def load_template(name: str) -> str:
+    """Baca template HTML dari folder templates/ (sekali, saat server dimulai)."""
+    return (BASE_DIR / "templates" / name).read_text(encoding="utf-8")
+
+
+INDEX_HTML = load_template("index.html")
+NOT_FOUND_HTML = load_template("not_found.html")
 
 
 # =====================================================================
@@ -203,7 +227,7 @@ def get_original_url(short_code: str):
 
 
 # Kode error API. Browser menerjemahkan kode ini sesuai bahasa pilihan pengguna
-# (kunci "err.<kode>" di I18N_SCRIPT); teks Inggris ini dipakai sebagai cadangan
+# (kunci "err.<kode>" di static/i18n.js); teks Inggris ini dipakai sebagai cadangan
 # dan untuk klien non-browser. Jaga agar kedua tempat tetap sinkron.
 ERRORS = {
     "url_empty": "The URL must not be empty.",
@@ -310,17 +334,47 @@ class LinkShortener(BaseHTTPRequestHandler):
         host = self.headers.get("Host") or f"localhost:{port}"
         return f"{scheme}://{host}"
 
+    def send_static(self, name: str):
+        """Sajikan file dari folder static/ (hanya nama di STATIC_FILES)."""
+        content_type = STATIC_FILES.get(name)
+        file_path = STATIC_DIR / name
+        try:
+            if content_type is None:
+                raise FileNotFoundError(name)
+            stat = file_path.stat()
+        except OSError:
+            self.send_response(404)
+            self.send_header("Content-type", "text/plain; charset=utf-8")
+            self.end_headers()
+            self.wfile.write(b"Not found")
+            return
+
+        # ETag + no-cache: browser selalu memeriksa versi terbaru, tetapi cukup
+        # mendapat balasan 304 (tanpa isi) kalau file belum berubah.
+        etag = f'"{stat.st_mtime_ns:x}-{stat.st_size:x}"'
+        if self.headers.get("If-None-Match") == etag:
+            self.send_response(304)
+            self.send_header("ETag", etag)
+            self.send_header("Cache-Control", "no-cache")
+            self.end_headers()
+            return
+
+        data = file_path.read_bytes()
+        self.send_response(200)
+        self.send_header("Content-type", content_type)
+        self.send_header("Content-Length", str(len(data)))
+        self.send_header("Cache-Control", "no-cache")
+        self.send_header("ETag", etag)
+        self.send_header("X-Content-Type-Options", "nosniff")
+        self.end_headers()
+        self.wfile.write(data)
+
     def send_not_found(self, shortname: str):
         """Balas 404 dengan halaman HTML yang senada dengan halaman utama."""
         # Batasi panjang yang ditampilkan; escape() mencegah XSS dari path/header.
         link = f"{self.get_base_url()}/{shortname}"
         shown = link if len(link) <= 200 else link[:200] + "…"
-        page = NOT_FOUND.format(
-            style=STYLE,
-            i18n_script=I18N_SCRIPT,
-            theme_script=THEME_SCRIPT,
-            link=escape(shown),
-        )
+        page = NOT_FOUND_HTML.replace("{link}", escape(shown))
         data = page.encode()
         self.send_response(404)
         self.send_header("Content-type", "text/html; charset=utf-8")
@@ -332,6 +386,11 @@ class LinkShortener(BaseHTTPRequestHandler):
         """Handle requests for the form or to resolve a short link."""
         # A GET request will either be for / (the root path) or for /some-name.
         # Strip off the / and we have either empty string or a name.
+        path = urlparse(self.path).path
+        if path.startswith("/static/"):
+            self.send_static(path[len("/static/"):])
+            return
+
         shortname = unquote(self.path[1:])
 
         if shortname:
@@ -348,12 +407,7 @@ class LinkShortener(BaseHTTPRequestHandler):
                 self.send_not_found(shortname)
         else:
             # Root path. Send the form.
-            page = FORM.format(
-                style=STYLE,
-                i18n_script=I18N_SCRIPT,
-                theme_script=THEME_SCRIPT,
-                script=SCRIPT,
-            )
+            page = INDEX_HTML
             self.send_response(200)
             self.send_header("Content-type", "text/html; charset=utf-8")
             self.end_headers()

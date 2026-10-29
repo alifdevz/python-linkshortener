@@ -1,0 +1,43 @@
+<!doctype html>
+<html lang="en">
+  <head>
+    <meta charset="utf-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1" />
+    <title data-i18n="nf.page_title">Link not found - Link Shortener</title>
+    <link
+      rel="icon"
+      href="data:image/svg+xml,<svg xmlns=%27http://www.w3.org/2000/svg%27 viewBox=%270 0 100 100%27><text y=%27.9em%27 font-size=%2790%27>🔗</text></svg>"
+    />
+    <link rel="stylesheet" href="/static/style.css" />
+    <script src="/static/i18n.js"></script>
+    <script src="/static/theme.js"></script>
+  </head>
+  <body>
+    <main>
+      <header>
+        <h1>🔗 Link Shortener</h1>
+        <div class="header-actions">
+          <button type="button" id="lang-toggle" class="pill-btn">
+            🌐 English
+          </button>
+          <button type="button" id="theme-toggle" class="pill-btn">
+            🖥️ System
+          </button>
+        </div>
+      </header>
+
+      <section class="card not-found">
+        <div class="not-found-icon" aria-hidden="true">🔍</div>
+        <h2 data-i18n="nf.title">Link not found</h2>
+        <p>
+          <span data-i18n="nf.message">I couldn't find:</span> <br />
+          <code>{link}</code>
+        </p>
+        <p class="hint" data-i18n="nf.hint">
+          Check the short link again, or create a new one.
+        </p>
+        <a class="btn-link" href="/" data-i18n="nf.back">Back to home</a>
+      </section>
+    </main>
+  </body>
+</html>

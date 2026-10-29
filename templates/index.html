@@ -1,0 +1,135 @@
+<!doctype html>
+<html lang="en">
+  <head>
+    <meta charset="utf-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1" />
+    <title data-i18n="page.title">Link Shortener</title>
+    <link
+      rel="icon"
+      href="data:image/svg+xml,<svg xmlns=%27http://www.w3.org/2000/svg%27 viewBox=%270 0 100 100%27><text y=%27.9em%27 font-size=%2790%27>🔗</text></svg>"
+    />
+    <link rel="stylesheet" href="/static/style.css" />
+    <script src="/static/i18n.js"></script>
+    <script src="/static/theme.js"></script>
+    <script src="/static/app.js" defer></script>
+  </head>
+  <body>
+    <main>
+      <header>
+        <h1>🔗 Link Shortener</h1>
+        <div class="header-actions">
+          <button type="button" id="lang-toggle" class="pill-btn">
+            🌐 English
+          </button>
+          <button type="button" id="theme-toggle" class="pill-btn">
+            🖥️ System
+          </button>
+        </div>
+      </header>
+
+      <form id="shorten-form" class="card">
+        <label
+          ><span data-i18n="form.long_url">Long URL</span>
+          <input
+            type="url"
+            name="longuri"
+            id="longuri"
+            placeholder="https://example.com/very/long/page"
+            data-i18n-placeholder="form.long_url_placeholder"
+            required
+          />
+        </label>
+        <button
+          type="button"
+          name="generate"
+          id="generate-short"
+          class="btn-secondary"
+        >
+          <span aria-hidden="true">🎲</span>
+          <span class="btn-label" data-i18n="btn.generate"
+            >Generate short link</span
+          >
+        </button>
+        <div class="input-group">
+          <input
+            type="text"
+            name="shortname"
+            id="shortname"
+            placeholder="example"
+            data-i18n-placeholder="form.short_placeholder"
+            readonly
+          />
+          <button
+            type="button"
+            id="copy-short"
+            class="icon-btn"
+            title="Copy"
+            aria-label="Copy"
+            data-i18n-title="copy.title"
+            data-i18n-aria-label="copy.title"
+          >
+            <svg
+              class="icon-copy"
+              viewBox="0 0 24 24"
+              fill="none"
+              stroke="currentColor"
+              stroke-width="2"
+              stroke-linecap="round"
+              stroke-linejoin="round"
+              aria-hidden="true"
+            >
+              <rect x="9" y="9" width="13" height="13" rx="2"></rect>
+              <path
+                d="M5 15H4a2 2 0 0 1-2-2V4a2 2 0 0 1 2-2h9a2 2 0 0 1 2 2v1"
+              ></path>
+            </svg>
+            <svg
+              class="icon-check"
+              viewBox="0 0 24 24"
+              fill="none"
+              stroke="currentColor"
+              stroke-width="2.5"
+              stroke-linecap="round"
+              stroke-linejoin="round"
+              aria-hidden="true"
+            >
+              <polyline points="20 6 9 17 4 12"></polyline>
+            </svg>
+          </button>
+        </div>
+        <p id="message" class="message" role="status" aria-live="polite"></p>
+      </form>
+
+      <section class="card" id="verify-section">
+        <h2 data-i18n="verify.heading">Verify link</h2>
+        <p class="hint" data-i18n="verify.hint">
+          Paste a short link to see where it really goes before opening it.
+        </p>
+        <form id="verify-form">
+          <label
+            ><span data-i18n="verify.label">Short link</span>
+            <input
+              type="text"
+              id="shortlink"
+              placeholder="https://.../code or just the code"
+              data-i18n-placeholder="verify.placeholder"
+              autocomplete="off"
+              spellcheck="false"
+              required
+            />
+          </label>
+          <button type="submit" id="verify-btn" class="btn-secondary">
+            <span aria-hidden="true">🔍</span>
+            <span class="btn-label" data-i18n="btn.verify">Check link</span>
+          </button>
+        </form>
+        <div
+          id="verify-result"
+          class="result"
+          role="status"
+          aria-live="polite"
+        ></div>
+      </section>
+    </main>
+  </body>
+</html>
